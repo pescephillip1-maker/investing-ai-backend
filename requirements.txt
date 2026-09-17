@@ -1,2 +1,129 @@
-fastapi
-uvicorn
+import random
+import numpy as np
+from sklearn.linear_model import LogisticRegression
+
+# -------------------------
+# SYMBOLS
+# -------------------------
+symbols = ["AAPL", "TSLA", "SPY"]
+
+# -------------------------
+# PORTFOLIO STATE
+# -------------------------
+portfolio = {
+    "cash": 10000,
+    "positions": {s: 0 for s in symbols},
+    "history": [],
+    "stats": {"trades": 0, "wins": 0, "losses": 0, "profit": 0}
+}
+
+# -------------------------
+# PRICE MEMORY
+# -------------------------
+price_memory = {
+    "AAPL": [150],
+    "TSLA": [250],
+    "SPY": [400]
+}
+
+# -------------------------
+# ML MODEL
+# -------------------------
+model = LogisticRegression()
+trained = False
+
+# -------------------------
+# PRICE SIMULATION
+# -------------------------
+def simulate_price(symbol, history=False):
+    last = price_memory[symbol][-1]
+
+    change = random.uniform(-3, 3)
+    new_price = round(max(5, last + change), 2)
+
+    price_memory[symbol].append(new_price)
+
+    if len(price_memory[symbol]) > 30:
+        price_memory[symbol].pop(0)
+
+    if history:
+        return price_memory[symbol]
+
+    return new_price
+
+
+# -------------------------
+# FEATURES
+# -------------------------
+def build_features(prices):
+    if len(prices) < 10:
+        return None
+
+    recent = prices[-10:]
+    returns = np.diff(recent)
+
+    return [
+        np.mean(returns),
+        np.std(returns),
+        recent[-1] - recent[0]
+    ]
+
+
+# -------------------------
+# TRAIN MODEL
+# -------------------------
+def train_model():
+    global trained
+
+    X, y = [], []
+
+    for s in price_memory:
+        prices = price_memory[s]
+
+        for i in range(10, len(prices)):
+            feat = build_features(prices[i-10:i])
+            if feat:
+                X.append(feat)
+                y.append(1 if prices[i] > prices[i-1] else 0)
+
+    if len(X) > 20:
+        model.fit(X, y)
+        trained = True
+
+
+# -------------------------
+# ML PREDICTION
+# -------------------------
+def ml_predict(symbol):
+    prices = price_memory[symbol]
+    feat = build_features(prices)
+
+    if not feat or not trained:
+        return None
+
+    pred = model.predict([feat])[0]
+    conf = model.predict_proba([feat])[0].max()
+
+    return ("BUY" if pred == 1 else "SELL", conf)
+
+
+# -------------------------
+# SIGNAL ENGINE
+# -------------------------
+def generate_signal(symbol, price):
+    ml = ml_predict(symbol)
+
+    if ml:
+        signal, conf = ml
+        source = "ml"
+    else:
+        signal, conf = "HOLD", 0.5
+        source = "rules"
+
+    return {
+        "symbol": symbol,
+        "price": price,
+        "signal": signal,
+        "confidence": round(conf, 2),
+        "model": source
+    }
